@@ -56,7 +56,7 @@ mod testing;
 pub mod state_dir;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 /// Wrapper type for Results returned from this crate.
 type Result<T> = std::result::Result<T, crate::Error>;
@@ -124,6 +124,84 @@ pub trait StateMgr: Clone {
     }
 }
 
+/// An "object-safe" implementation of [`StateMgr`]so that it can be used in the tor client
+pub enum StateMgrImpl {
+    /// In memory state manager
+    MemStateMgr(MemStateMgr),
+    /// File system state manager
+    FsStateMgr(FsStateMgr),
+    // /// Testing state manager
+    // TestingStateMgr(TestingStateMgr),
+}
+
+impl Clone for StateMgrImpl {
+    fn clone(&self) -> Self {
+        match self {
+            Self::MemStateMgr(mgr) => Self::MemStateMgr(mgr.clone()),
+            Self::FsStateMgr(mgr) => Self::FsStateMgr(mgr.clone()),
+            // Self::TestingStateMgr(mgr) => Self::TestingStateMgr(mgr.clone()),
+        }
+    }
+}
+
+impl StateMgrImpl {
+    /// Reconfiguration depends on FS specific behavior. We fake it for the other
+    /// implementations
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::FsStateMgr(mgr) => mgr.path(),
+            _ => Path::new(""),
+        }
+    }
+}
+
+impl StateMgr for StateMgrImpl {
+    fn load<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: DeserializeOwned,
+    {
+        match self {
+            Self::MemStateMgr(mgr) => mgr.load(key),
+            Self::FsStateMgr(mgr) => mgr.load(key),
+            // Self::TestingStateMgr(mgr) => mgr.load(key),
+        }
+    }
+
+    fn store<S>(&self, key: &str, val: &S) -> Result<()>
+    where
+        S: Serialize,
+    {
+        match self {
+            Self::MemStateMgr(mgr) => mgr.store(key, val),
+            Self::FsStateMgr(mgr) => mgr.store(key, val),
+            // Self::TestingStateMgr(mgr) => mgr.store(key, val),
+        }
+    }
+
+    fn can_store(&self) -> bool {
+        match self {
+            Self::MemStateMgr(mgr) => mgr.can_store(),
+            Self::FsStateMgr(mgr) => mgr.can_store(),
+            // Self::TestingStateMgr(mgr) => mgr.can_store(),
+        }
+    }
+
+    fn try_lock(&self) -> Result<LockStatus> {
+        match self {
+            Self::MemStateMgr(mgr) => mgr.try_lock(),
+            Self::FsStateMgr(mgr) => mgr.try_lock(),
+            // Self::TestingStateMgr(mgr) => mgr.try_lock(),
+        }
+    }
+
+    fn unlock(&self) -> Result<()> {
+        match self {
+            Self::MemStateMgr(mgr) => mgr.unlock(),
+            Self::FsStateMgr(mgr) => mgr.unlock(),
+            // Self::TestingStateMgr(mgr) => mgr.unlock(),
+        }
+    }
+}
 /// A possible outcome from calling [`StateMgr::try_lock()`]
 #[allow(clippy::exhaustive_enums)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

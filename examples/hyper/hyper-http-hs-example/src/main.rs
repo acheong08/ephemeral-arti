@@ -57,7 +57,10 @@ async fn main() {
     // The defaults provided are the same as the Arti standalone application, and save data
     // to a conventional place depending on operating system (for example, ~/.local/share/arti
     // on Linux platforms)
-    let config = TorClientConfig::default();
+    let config = TorClientConfig::builder()
+        .persistent_state(false)
+        .build()
+        .unwrap();
 
     // We now let the Arti client start and bootstrap a connection to the network.
     // (This takes a while to gather the necessary consensus state, etc.)

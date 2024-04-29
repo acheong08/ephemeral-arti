@@ -22,6 +22,19 @@ struct MemStateMgrInner {
     lock: Mutex<bool>,
 }
 
+impl MemStateMgr {
+    /// Create a new `MemStateMgr`.
+    pub fn new() -> Self {
+        let inner = MemStateMgrInner {
+            data: Mutex::new(HashMap::new()),
+            lock: Mutex::new(false),
+        };
+        Self {
+            inner: Arc::new(inner),
+        }
+    }
+}
+
 impl StateMgr for MemStateMgr {
     fn can_store(&self) -> bool {
         true

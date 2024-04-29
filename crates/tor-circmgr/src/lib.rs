@@ -94,7 +94,7 @@ use safelog::sensitive as sv;
 #[cfg(feature = "geoip")]
 use tor_geoip::CountryCode;
 pub use tor_guardmgr::{ExternalActivity, FirstHopId};
-use tor_persist::{FsStateMgr, StateMgr};
+use tor_persist::{StateMgr, StateMgrImpl};
 use tor_rtcompat::scheduler::{TaskHandle, TaskSchedule};
 
 #[cfg(feature = "hs-common")]
@@ -238,7 +238,7 @@ impl<R: Runtime> CircMgr<R> {
         self: &Arc<Self>,
         runtime: &R,
         dir_provider: &Arc<D>,
-        state_mgr: FsStateMgr,
+        state_mgr: StateMgrImpl,
     ) -> Result<Vec<TaskHandle>>
     where
         D: NetDirProvider + 'static + ?Sized,
@@ -757,7 +757,7 @@ impl<R: Runtime> CircMgr<R> {
     async fn update_persistent_state(
         mut sched: TaskSchedule<R>,
         circmgr: Weak<Self>,
-        statemgr: FsStateMgr,
+        statemgr: StateMgrImpl,
     ) {
         while sched.next().await.is_some() {
             if let Some(circmgr) = Weak::upgrade(&circmgr) {

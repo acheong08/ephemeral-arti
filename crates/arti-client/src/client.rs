@@ -24,7 +24,7 @@ use tor_guardmgr::GuardMgr;
 use tor_netdir::{params::NetParameters, NetDirProvider};
 #[cfg(feature = "onion-service-service")]
 use tor_persist::state_dir::StateDirectory;
-use tor_persist::{FsStateMgr, StateMgr};
+use tor_persist::{FsStateMgr, MemStateMgr, StateMgr, StateMgrImpl};
 use tor_proto::circuit::ClientCirc;
 use tor_proto::stream::{DataStream, IpVersionPreference, StreamParameters};
 #[cfg(all(
@@ -146,7 +146,7 @@ pub struct TorClient<R: Runtime> {
     #[cfg(feature = "onion-service-service")]
     storage_mistrust: fs_mistrust::Mistrust,
     /// Location on disk where we store persistent data (cooked state manager).
-    statemgr: FsStateMgr,
+    statemgr: StateMgrImpl,
     /// Client address configuration
     addrcfg: Arc<MutCfg<ClientAddrConfig>>,
     /// Client DNS configuration
@@ -544,8 +544,15 @@ impl<R: Runtime> TorClient<R> {
             c.extensions = dirmgr_extensions;
             c
         };
-        let statemgr = FsStateMgr::from_path_and_mistrust(&state_dir, mistrust)
-            .map_err(ErrorDetail::StateMgrSetup)?;
+        let statemgr: StateMgrImpl;
+        if config.persistent_state {
+            statemgr = StateMgrImpl::FsStateMgr(
+                FsStateMgr::from_path_and_mistrust(&state_dir, mistrust)
+                    .map_err(ErrorDetail::StateMgrSetup)?,
+            );
+        } else {
+            statemgr = StateMgrImpl::MemStateMgr(MemStateMgr::new());
+        }
         // Try to take state ownership early, so we'll know if we have it.
         // (At this point we don't yet care if we have it.)
         let _ignore_status = statemgr.try_lock().map_err(ErrorDetail::StateMgrSetup)?;
