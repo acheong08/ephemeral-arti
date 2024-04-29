@@ -1,3 +1,4 @@
+proxychains.conf
 /coverage/
 /coverage_meta/
 /coverage_meta_*/

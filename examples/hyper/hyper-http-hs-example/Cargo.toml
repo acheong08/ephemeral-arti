@@ -13,6 +13,7 @@ arti-client = { path = "../../../crates/arti-client", features = ["onion-service
 futures = "0.3.14"
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1.1", features = ["tokio"] }
+log = "0.4.21"
 safelog = { path = "../../../crates/safelog" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 tokio-util = "0.7.10"
