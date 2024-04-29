@@ -41,7 +41,7 @@ use {
     tor_netdir::DirEvent,
 };
 
-use tor_keymgr::{ArtiNativeKeystore, KeyMgr, KeyMgrBuilder};
+use tor_keymgr::{ArtiEphemeralKeystore, ArtiNativeKeystore, KeyMgr, KeyMgrBuilder, Keystore};
 
 use futures::lock::Mutex as AsyncMutex;
 use futures::task::SpawnExt;
@@ -1451,15 +1451,24 @@ impl<R: Runtime> TorClient<R> {
             let key_store_dir = state_dir.join("keystore");
             let permissions = config.storage.permissions();
 
-            let arti_store =
-                ArtiNativeKeystore::from_path_and_mistrust(&key_store_dir, permissions)?;
+            let arti_store: Box<dyn Keystore>;
+            if config.persistent_state {
+                arti_store = Box::new(ArtiNativeKeystore::from_path_and_mistrust(
+                    &key_store_dir,
+                    permissions,
+                )?);
+            } else {
+                arti_store = Box::new(ArtiEphemeralKeystore::new(
+                    key_store_dir.to_string_lossy().to_string(),
+                ));
+            }
             info!("Using keystore from {key_store_dir:?}");
 
             // TODO #1106: make the default store configurable
             let default_store = arti_store;
 
             let keymgr = KeyMgrBuilder::default()
-                .default_store(Box::new(default_store))
+                .default_store(default_store)
                 .build()
                 .map_err(|_| internal!("failed to build keymgr"))?;
 

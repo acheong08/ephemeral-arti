@@ -645,6 +645,10 @@ pub struct TorClientConfig {
     #[builder(sub_builder)]
     #[builder_field_attr(serde(default))]
     pub(crate) vanguards: vanguards::VanguardConfig,
+
+    /// Persistent state (defaults to true)
+    #[builder(default = "true")]
+    pub(crate) persistent_state: bool,
 }
 impl_standard_builder! { TorClientConfig }
 
