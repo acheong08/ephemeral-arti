@@ -616,7 +616,7 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
         config: watch::Receiver<Arc<OnionServiceConfig>>,
         output_rend_reqs: mpsc::Sender<RendRequest>,
         shutdown: broadcast::Receiver<Void>,
-        state_handle: &tor_persist::state_dir::InstanceStateHandle,
+        state_handle: &Option<tor_persist::state_dir::InstanceStateHandle>,
         mockable: M,
         keymgr: Arc<KeyMgr>,
         status_tx: IptMgrStatusSender,
@@ -628,6 +628,8 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
             if persist {
                 Some(
                     state_handle
+                        .as_ref()
+                        .unwrap()
                         .storage_handle("ipts")
                         .map_err(StartupError::StateDirectoryInaccessible)?,
                 )
@@ -643,6 +645,8 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
             if persist {
                 Some(
                     state_handle
+                        .as_ref()
+                        .unwrap()
                         .raw_subdir("iptreplay")
                         .map_err(StartupError::StateDirectoryInaccessible)?,
                 )
@@ -1959,7 +1963,7 @@ mod test {
                 create_storage_handles_from_state_dir(&state_dir, &nick);
 
             let (mgr_view, pub_view) =
-                ipt_set::ipts_channel(&runtime, iptpub_state_handle).unwrap();
+                ipt_set::ipts_channel(&runtime, Some(iptpub_state_handle)).unwrap();
 
             let keymgr = create_keymgr(temp_dir);
             let keymgr = keymgr.into_untracked(); // OK because our return value captures 'd
@@ -1971,7 +1975,7 @@ mod test {
                 cfg_rx,
                 rend_tx,
                 shut_rx,
-                &state_handle,
+                &Some(state_handle),
                 mocks,
                 keymgr,
                 status_tx,

@@ -230,7 +230,7 @@ pub(crate) struct OnionServiceState {
     /// The key manager, used for accessing the underlying key stores.
     keymgr: Arc<KeyMgr>,
     /// The location on disk where the persistent data is stored.
-    state_dir: StateDirectory,
+    state_dir: Option<StateDirectory>,
 }
 
 impl OnionServiceState {
@@ -276,7 +276,7 @@ impl OnionService {
     pub fn new(
         config: OnionServiceConfig,
         keymgr: Arc<KeyMgr>,
-        state_dir: &StateDirectory,
+        state_dir: &Option<StateDirectory>,
     ) -> Result<Self, StartupError> {
         let nickname = config.nickname.clone();
         // TODO (#1194): add a config option for specifying whether to expect the KS_hsid to be stored
@@ -291,7 +291,10 @@ impl OnionService {
             state: OnionServiceState {
                 nickname,
                 keymgr,
-                state_dir: state_dir.clone(),
+                state_dir: match state_dir {
+                    Some(dir) => Some(dir.clone()),
+                    None => None,
+                },
             },
         })
     }
@@ -317,18 +320,28 @@ impl OnionService {
         let OnionService { config, state } = self;
 
         let nickname = state.nickname.clone();
-
-        let state_handle = state
-            .state_dir
-            .acquire_instance(&nickname)
-            .map_err(StartupError::StateDirectoryInaccessible)?;
-
+        let state_handle = {
+            if config.persistent_state() {
+                Some(
+                    state
+                        .state_dir
+                        .as_ref()
+                        .unwrap()
+                        .acquire_instance(&nickname)
+                        .map_err(StartupError::StateDirectoryInaccessible)?,
+                )
+            } else {
+                None
+            }
+        };
         // We pass the "cooked" handle, with the storage key embedded, to ipt_set,
         // since the ipt_set code doesn't otherwise have access to the HS nickname.
         let iptpub_storage_handle = {
             if config.persistent_state() {
                 Some(
                     state_handle
+                        .as_ref()
+                        .unwrap()
                         .storage_handle("iptpub")
                         .map_err(StartupError::StateDirectoryInaccessible)?,
                 )
@@ -779,7 +792,7 @@ pub(crate) mod test {
         )
         .unwrap();
 
-        let service = OnionService::new(config, Arc::clone(&*keymgr), &state_dir).unwrap();
+        let service = OnionService::new(config, Arc::clone(&*keymgr), &Some(state_dir)).unwrap();
 
         let hsid = HsId::from(hsid_public);
         assert_eq!(service.onion_name().unwrap(), hsid);
