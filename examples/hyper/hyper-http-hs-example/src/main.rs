@@ -71,6 +71,7 @@ async fn main() {
 
     let svc_cfg = OnionServiceConfigBuilder::default()
         .nickname("allium-ampeloprasum".parse().unwrap())
+        .persistent_state(false)
         .build()
         .unwrap();
     let (service, request_stream) = client.launch_onion_service(svc_cfg).unwrap();

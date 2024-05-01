@@ -620,6 +620,7 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
         mockable: M,
         keymgr: Arc<KeyMgr>,
         status_tx: IptMgrStatusSender,
+        persist: bool,
     ) -> Result<Self, StartupError> {
         let irelays = vec![]; // See TODO near persist::load call, in launch_background_tasks
 
@@ -631,9 +632,17 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
             .storage_handle("ipts")
             .map_err(StartupError::StateDirectoryInaccessible)?;
 
-        let replay_log_dir = state_handle
-            .raw_subdir("iptreplay")
-            .map_err(StartupError::StateDirectoryInaccessible)?;
+        let replay_log_dir = {
+            if persist {
+                Some(
+                    state_handle
+                        .raw_subdir("iptreplay")
+                        .map_err(StartupError::StateDirectoryInaccessible)?,
+                )
+            } else {
+                None
+            }
+        };
 
         let imm = Immutable {
             runtime,
@@ -642,7 +651,7 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
             status_send,
             output_rend_reqs,
             keymgr,
-            replay_log_dir: Some(replay_log_dir),
+            replay_log_dir: replay_log_dir,
             status_tx,
         };
         let current_config = config.borrow().clone();
@@ -1957,6 +1966,7 @@ mod test {
                 mocks,
                 keymgr,
                 status_tx,
+                true,
             )
             .unwrap();
 

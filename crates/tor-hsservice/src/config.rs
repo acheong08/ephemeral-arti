@@ -73,6 +73,8 @@ pub struct OnionServiceConfig {
     // see also #1028
     //
     // pub(crate) encrypt_descriptor: Option<DescEncryptionConfig>,
+    #[builder(default = "true")]
+    persistent_state: bool,
 }
 
 /// Default number of introduction points.
@@ -82,6 +84,11 @@ impl OnionServiceConfig {
     /// Return a reference to this configuration's nickname.
     pub fn nickname(&self) -> &HsNickname {
         &self.nickname
+    }
+
+    /// Get persistent state setting.
+    pub fn persistent_state(&self) -> bool {
+        self.persistent_state
     }
 
     /// Check whether an onion service running with this configuration can
@@ -174,6 +181,7 @@ impl OnionServiceConfig {
 
             // We extract this on every introduction request.
             max_concurrent_streams_per_circuit: simply_update,
+            persistent_state: unchangeable,
         }
 
         Ok(other)

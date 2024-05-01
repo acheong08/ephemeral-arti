@@ -331,6 +331,7 @@ impl OnionService {
 
         let (rend_req_tx, rend_req_rx) = mpsc::channel(32);
         let (shutdown_tx, shutdown_rx) = broadcast::channel(0);
+        let persistent_state = config.persistent_state();
         let (config_tx, config_rx) = postage::watch::channel_with(Arc::new(config));
 
         let (ipt_mgr_view, publisher_view) =
@@ -351,6 +352,7 @@ impl OnionService {
             },
             state.keymgr.clone(),
             status_tx.clone().into(),
+            persistent_state,
         )?;
 
         let publisher: Publisher<R, publish::Real<R>> = Publisher::new(
