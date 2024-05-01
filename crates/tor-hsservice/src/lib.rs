@@ -325,9 +325,17 @@ impl OnionService {
 
         // We pass the "cooked" handle, with the storage key embedded, to ipt_set,
         // since the ipt_set code doesn't otherwise have access to the HS nickname.
-        let iptpub_storage_handle = state_handle
-            .storage_handle("iptpub")
-            .map_err(StartupError::StateDirectoryInaccessible)?;
+        let iptpub_storage_handle = {
+            if config.persistent_state() {
+                Some(
+                    state_handle
+                        .storage_handle("iptpub")
+                        .map_err(StartupError::StateDirectoryInaccessible)?,
+                )
+            } else {
+                None
+            }
+        };
 
         let (rend_req_tx, rend_req_rx) = mpsc::channel(32);
         let (shutdown_tx, shutdown_rx) = broadcast::channel(0);

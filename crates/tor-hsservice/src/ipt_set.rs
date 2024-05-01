@@ -74,7 +74,7 @@ pub(crate) struct PublishIptSet {
 
     /// The on-disk state storage handle.
     #[educe(Debug(ignore))]
-    storage: IptSetStorageHandle,
+    storage: Option<IptSetStorageHandle>,
 }
 
 /// A set of introduction points for publication
@@ -210,7 +210,7 @@ struct NotifyingBorrow<'v, R: SleepProvider> {
 /// Create a new shared state channel for the publication instructions
 pub(crate) fn ipts_channel(
     runtime: &impl SleepProvider,
-    storage: IptSetStorageHandle,
+    storage: Option<IptSetStorageHandle>,
 ) -> Result<(IptsManagerView, IptsPublisherView), StartupError> {
     let initial_state = PublishIptSet::load(storage, runtime)?;
     let shared = Arc::new(Mutex::new(initial_state));
@@ -481,15 +481,21 @@ impl PublishIptSet {
             stored: tstoring.store_ref(),
         };
 
-        Ok(storage.store(&on_disk)?)
+        match storage {
+            Some(storage) => Ok(storage.store(&on_disk)?),
+            None => Ok(()),
+        }
     }
 
     /// Load the publication times from the persistent state
     fn load(
-        storage: IptSetStorageHandle,
+        storage: Option<IptSetStorageHandle>,
         runtime: &impl SleepProvider,
     ) -> Result<PublishIptSet, StartupError> {
-        let on_disk = storage.load().map_err(StartupError::LoadState)?;
+        let on_disk = match &storage {
+            Some(storage) => storage.load().map_err(StartupError::LoadState)?,
+            None => None,
+        };
         let last_descriptor_expiry_including_slop = on_disk
             .map(|record| {
                 // Throughout, we use exhaustive struct patterns on the data we got from disk,
@@ -586,7 +592,7 @@ mod test {
             // make a channel; it should have no updates yet
 
             let (_state_mgr, iptpub_state_handle) = create_storage_handles(temp_dir);
-            let (mut mv, mut pv) = ipts_channel(&runtime, iptpub_state_handle).unwrap();
+            let (mut mv, mut pv) = ipts_channel(&runtime, Some(iptpub_state_handle)).unwrap();
             assert!(pv_poll_await_update(&mut pv).await.is_pending());
 
             // borrowing publisher view for publish doesn't cause an update

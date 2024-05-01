@@ -126,7 +126,7 @@ pub(crate) struct State<R, M> {
 
     /// The on-disk state storage handle.
     #[educe(Debug(ignore))]
-    storage: IptStorageHandle,
+    storage: Option<IptStorageHandle>,
 
     /// Mockable state, normally [`Real`]
     ///
@@ -624,14 +624,21 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
     ) -> Result<Self, StartupError> {
         let irelays = vec![]; // See TODO near persist::load call, in launch_background_tasks
 
+        let storage = {
+            if persist {
+                Some(
+                    state_handle
+                        .storage_handle("ipts")
+                        .map_err(StartupError::StateDirectoryInaccessible)?,
+                )
+            } else {
+                None
+            }
+        };
+
         // We don't need buffering; since this is written to by dedicated tasks which
         // are reading watches.
         let (status_send, status_recv) = mpsc::channel(0);
-
-        let storage = state_handle
-            .storage_handle("ipts")
-            .map_err(StartupError::StateDirectoryInaccessible)?;
-
         let replay_log_dir = {
             if persist {
                 Some(
@@ -651,7 +658,7 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
             status_send,
             output_rend_reqs,
             keymgr,
-            replay_log_dir: replay_log_dir,
+            replay_log_dir,
             status_tx,
         };
         let current_config = config.borrow().clone();
@@ -681,13 +688,15 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
         // TODO maybe this should be done in new(), so we don't have this dummy irelays
         // but then new() would need the IptsManagerView
         assert!(self.state.irelays.is_empty());
-        self.state.irelays = persist::load(
-            &self.imm,
-            &self.state.storage,
-            &self.state.new_configs,
-            &mut self.state.mockable,
-            &publisher.borrow_for_read(),
-        )?;
+        if let Some(storage) = &self.state.storage {
+            self.state.irelays = persist::load(
+                &self.imm,
+                storage,
+                &self.state.new_configs,
+                &mut self.state.mockable,
+                &publisher.borrow_for_read(),
+            )?;
+        }
 
         // Now that we've populated `irelays` and its `ipts` from the on-disk state,
         // we should check any leftover disk files from previous runs.  Make a note.
