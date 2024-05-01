@@ -173,7 +173,7 @@ impl IptRecord {
                 StartupError::StateDirectoryInaccessibleIo {
                     source: error,
                     action: "opening",
-                    path: file,
+                    path: file.unwrap(),
                 }
             }
         })?;

@@ -76,7 +76,7 @@ pub(crate) struct Immutable<R> {
     ///
     /// Files are named after the (bare) IptLocalId
     #[educe(Debug(ignore))]
-    replay_log_dir: tor_persist::state_dir::InstanceRawSubdir,
+    replay_log_dir: Option<tor_persist::state_dir::InstanceRawSubdir>,
 
     /// A sender for updating the status of the onion service.
     #[educe(Debug(ignore))]
@@ -304,7 +304,7 @@ pub(crate) enum CreateIptError {
     #[error("unable to open the intro req replay log: {file:?}")]
     OpenReplayLog {
         /// What filesystem object we tried to do it to
-        file: PathBuf,
+        file: Option<PathBuf>,
         /// What happened
         #[source]
         error: Arc<io::Error>,
@@ -465,7 +465,10 @@ impl Ipt {
         };
 
         // TODO #1186 Support ephemeral services (without persistent replay log)
-        let replay_log = ReplayLog::new_logged(&imm.replay_log_dir, &lid)?;
+        let replay_log = match &imm.replay_log_dir {
+            Some(replay_log_dir) => Some(ReplayLog::new_logged(replay_log_dir, &lid)?),
+            None => None,
+        };
 
         let params = IptParameters {
             replay_log,
@@ -639,7 +642,7 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
             status_send,
             output_rend_reqs,
             keymgr,
-            replay_log_dir,
+            replay_log_dir: Some(replay_log_dir),
             status_tx,
         };
         let current_config = config.borrow().clone();
@@ -1378,7 +1381,10 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
 
         // fs-mistrust doesn't offer CheckedDir::read_this_directory.
         // But, we probably don't mind that we're not doing many checks here.
-        let replay_logs = self.imm.replay_log_dir.as_path();
+        if self.imm.replay_log_dir.is_none() {
+            return Ok(());
+        }
+        let replay_logs = self.imm.replay_log_dir.as_ref().unwrap().as_path();
         let replay_logs_dir =
             fs::read_dir(replay_logs).map_err(handle_rl_err("open dir", replay_logs))?;
 
