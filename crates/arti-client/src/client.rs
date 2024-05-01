@@ -1370,8 +1370,13 @@ impl<R: Runtime> TorClient<R> {
                 action: "launch onion service",
             })?
             .clone();
-        let state_dir = self::StateDirectory::new(&self.state_dir, &self.storage_mistrust)
-            .map_err(ErrorDetail::StateAccess)?;
+        let state_dir = match config.persistent_state() {
+            true => Some(
+                self::StateDirectory::new(&self.state_dir, &self.storage_mistrust)
+                    .map_err(ErrorDetail::StateAccess)?,
+            ),
+            false => None,
+        };
         let service = tor_hsservice::OnionService::new(
             config, // TODO #1186: Allow override of KeyMgr for "ephemeral" operation?
             keymgr,
@@ -1406,8 +1411,12 @@ impl<R: Runtime> TorClient<R> {
         })?;
 
         let (state_dir, mistrust) = Self::state_dir(config)?;
-        let state_dir =
-            self::StateDirectory::new(state_dir, mistrust).map_err(ErrorDetail::StateAccess)?;
+        let state_dir = match config.persistent_state {
+            true => Some(
+                self::StateDirectory::new(state_dir, mistrust).map_err(ErrorDetail::StateAccess)?,
+            ),
+            false => None,
+        };
 
         Ok(
             tor_hsservice::OnionService::new(svc_config, keymgr, &state_dir)

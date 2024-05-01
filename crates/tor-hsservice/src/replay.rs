@@ -98,7 +98,7 @@ impl ReplayLog {
         let lock_guard = dir.raw_lock_guard();
 
         Self::new_logged_inner(&path, lock_guard).map_err(|error| CreateIptError::OpenReplayLog {
-            file: path,
+            file: Some(path),
             error: error.into(),
         })
     }

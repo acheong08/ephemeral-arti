@@ -230,7 +230,7 @@ pub(crate) struct IptParameters {
     ///
     /// We use this to record the requests that we see, and to prevent replays.
     #[educe(Debug(ignore))]
-    pub(crate) replay_log: ReplayLog,
+    pub(crate) replay_log: Option<ReplayLog>,
     /// A set of identifiers for the Relay that we intend to use as the
     /// introduction point.
     ///
@@ -330,7 +330,10 @@ impl IptEstablisher {
             },
             state: state.clone(),
             request_context,
-            replay_log: Arc::new(replay_log.into()),
+            replay_log: match replay_log {
+                Some(replay_log) => Some(Arc::new(replay_log.into())),
+                None => None,
+            },
         };
 
         let (status_tx, status_rx) = postage::watch::channel_with(IptStatus::new());
@@ -616,7 +619,7 @@ struct Reactor<R: Runtime> {
     ///
     /// Has to be an async mutex since it's locked for a long time,
     /// so we mustn't block the async executor thread on it.
-    replay_log: Arc<futures::lock::Mutex<ReplayLog>>,
+    replay_log: Option<Arc<futures::lock::Mutex<ReplayLog>>>,
 }
 
 /// An open session with a single introduction point.
@@ -771,7 +774,10 @@ impl<R: Runtime> Reactor<R> {
         // Make sure we don't start writing to the replay log until any previous
         // IptMsgHandler has been torn down.  (Using an async mutex means we
         // don't risk blocking the whole executor even if we have teardown bugs.)
-        let replay_log = self.replay_log.clone().lock_owned().await;
+        let replay_log = match &self.replay_log {
+            Some(replay_log) => Some(replay_log.clone().lock_owned().await),
+            None => None,
+        };
 
         let handler = IptMsgHandler {
             established_tx: Some(established_tx),
@@ -843,7 +849,7 @@ struct IptMsgHandler {
     lid: IptLocalId,
 
     /// A replay log used to detect replayed introduction requests.
-    replay_log: futures::lock::OwnedMutexGuard<ReplayLog>,
+    replay_log: Option<futures::lock::OwnedMutexGuard<ReplayLog>>,
 }
 
 impl tor_proto::circuit::MsgHandler for IptMsgHandler {
@@ -910,30 +916,32 @@ impl tor_proto::circuit::MsgHandler for IptMsgHandler {
                     RequestDisposition::Shutdown => return Ok(MetaCellDisposition::CloseCirc),
                     RequestDisposition::Advertised => {}
                 }
-                match self.replay_log.check_for_replay(&introduce2) {
-                    Ok(()) => {}
-                    Err(ReplayError::AlreadySeen) => {
-                        // This is probably a replay, but maybe an accident. We
-                        // just drop the request.
+                if let Some(replay_log) = &mut self.replay_log {
+                    match replay_log.check_for_replay(&introduce2) {
+                        Ok(()) => {}
+                        Err(ReplayError::AlreadySeen) => {
+                            // This is probably a replay, but maybe an accident. We
+                            // just drop the request.
 
-                        // TODO (#1233): Log that this has occurred, with a rate
-                        // limit.  Possibly, we should allow it to fail once or
-                        // twice per circuit before we log, since we expect
-                        // a nonzero false-positive rate.
-                        //
-                        // Note that we should NOT close the circuit in this
-                        // case: the repeated message could come from a hostile
-                        // introduction point trying to do traffic analysis, but
-                        // it could also come from a user trying to make it look
-                        // like the intro point is doing traffic analysis.
-                        return Ok(MetaCellDisposition::Consumed);
-                    }
-                    Err(ReplayError::Log(_)) => {
-                        // Uh-oh! We failed to write the data persistently!
-                        //
-                        // TODO (#1226): We need to decide what to do here.  Right
-                        // now we close the circuit, which is wrong.
-                        return Ok(MetaCellDisposition::CloseCirc);
+                            // TODO (#1233): Log that this has occurred, with a rate
+                            // limit.  Possibly, we should allow it to fail once or
+                            // twice per circuit before we log, since we expect
+                            // a nonzero false-positive rate.
+                            //
+                            // Note that we should NOT close the circuit in this
+                            // case: the repeated message could come from a hostile
+                            // introduction point trying to do traffic analysis, but
+                            // it could also come from a user trying to make it look
+                            // like the intro point is doing traffic analysis.
+                            return Ok(MetaCellDisposition::Consumed);
+                        }
+                        Err(ReplayError::Log(_)) => {
+                            // Uh-oh! We failed to write the data persistently!
+                            //
+                            // TODO (#1226): We need to decide what to do here.  Right
+                            // now we close the circuit, which is wrong.
+                            return Ok(MetaCellDisposition::CloseCirc);
+                        }
                     }
                 }
 

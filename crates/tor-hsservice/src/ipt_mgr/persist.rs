@@ -81,7 +81,10 @@ pub(super) fn store<R: Runtime, M: Mockable<R>>(
         ipt_relays,
         stored: tstoring.store_ref(),
     };
-    state.storage.store(&on_disk)?;
+
+    if let Some(storage) = state.storage.as_mut() {
+        let _ = storage.store(&on_disk);
+    }
     Ok(())
 }
 
@@ -173,7 +176,7 @@ impl IptRecord {
                 StartupError::StateDirectoryInaccessibleIo {
                     source: error,
                     action: "opening",
-                    path: file,
+                    path: file.unwrap(),
                 }
             }
         })?;

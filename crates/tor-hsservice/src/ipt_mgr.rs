@@ -76,7 +76,7 @@ pub(crate) struct Immutable<R> {
     ///
     /// Files are named after the (bare) IptLocalId
     #[educe(Debug(ignore))]
-    replay_log_dir: tor_persist::state_dir::InstanceRawSubdir,
+    replay_log_dir: Option<tor_persist::state_dir::InstanceRawSubdir>,
 
     /// A sender for updating the status of the onion service.
     #[educe(Debug(ignore))]
@@ -126,7 +126,7 @@ pub(crate) struct State<R, M> {
 
     /// The on-disk state storage handle.
     #[educe(Debug(ignore))]
-    storage: IptStorageHandle,
+    storage: Option<IptStorageHandle>,
 
     /// Mockable state, normally [`Real`]
     ///
@@ -304,7 +304,7 @@ pub(crate) enum CreateIptError {
     #[error("unable to open the intro req replay log: {file:?}")]
     OpenReplayLog {
         /// What filesystem object we tried to do it to
-        file: PathBuf,
+        file: Option<PathBuf>,
         /// What happened
         #[source]
         error: Arc<io::Error>,
@@ -465,7 +465,10 @@ impl Ipt {
         };
 
         // TODO #1186 Support ephemeral services (without persistent replay log)
-        let replay_log = ReplayLog::new_logged(&imm.replay_log_dir, &lid)?;
+        let replay_log = match &imm.replay_log_dir {
+            Some(replay_log_dir) => Some(ReplayLog::new_logged(replay_log_dir, &lid)?),
+            None => None,
+        };
 
         let params = IptParameters {
             replay_log,
@@ -613,24 +616,44 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
         config: watch::Receiver<Arc<OnionServiceConfig>>,
         output_rend_reqs: mpsc::Sender<RendRequest>,
         shutdown: broadcast::Receiver<Void>,
-        state_handle: &tor_persist::state_dir::InstanceStateHandle,
+        state_handle: &Option<tor_persist::state_dir::InstanceStateHandle>,
         mockable: M,
         keymgr: Arc<KeyMgr>,
         status_tx: IptMgrStatusSender,
+        persist: bool,
     ) -> Result<Self, StartupError> {
         let irelays = vec![]; // See TODO near persist::load call, in launch_background_tasks
+
+        let storage = {
+            if persist {
+                Some(
+                    state_handle
+                        .as_ref()
+                        .unwrap()
+                        .storage_handle("ipts")
+                        .map_err(StartupError::StateDirectoryInaccessible)?,
+                )
+            } else {
+                None
+            }
+        };
 
         // We don't need buffering; since this is written to by dedicated tasks which
         // are reading watches.
         let (status_send, status_recv) = mpsc::channel(0);
-
-        let storage = state_handle
-            .storage_handle("ipts")
-            .map_err(StartupError::StateDirectoryInaccessible)?;
-
-        let replay_log_dir = state_handle
-            .raw_subdir("iptreplay")
-            .map_err(StartupError::StateDirectoryInaccessible)?;
+        let replay_log_dir = {
+            if persist {
+                Some(
+                    state_handle
+                        .as_ref()
+                        .unwrap()
+                        .raw_subdir("iptreplay")
+                        .map_err(StartupError::StateDirectoryInaccessible)?,
+                )
+            } else {
+                None
+            }
+        };
 
         let imm = Immutable {
             runtime,
@@ -669,13 +692,15 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
         // TODO maybe this should be done in new(), so we don't have this dummy irelays
         // but then new() would need the IptsManagerView
         assert!(self.state.irelays.is_empty());
-        self.state.irelays = persist::load(
-            &self.imm,
-            &self.state.storage,
-            &self.state.new_configs,
-            &mut self.state.mockable,
-            &publisher.borrow_for_read(),
-        )?;
+        if let Some(storage) = &self.state.storage {
+            self.state.irelays = persist::load(
+                &self.imm,
+                storage,
+                &self.state.new_configs,
+                &mut self.state.mockable,
+                &publisher.borrow_for_read(),
+            )?;
+        }
 
         // Now that we've populated `irelays` and its `ipts` from the on-disk state,
         // we should check any leftover disk files from previous runs.  Make a note.
@@ -1378,7 +1403,10 @@ impl<R: Runtime, M: Mockable<R>> IptManager<R, M> {
 
         // fs-mistrust doesn't offer CheckedDir::read_this_directory.
         // But, we probably don't mind that we're not doing many checks here.
-        let replay_logs = self.imm.replay_log_dir.as_path();
+        if self.imm.replay_log_dir.is_none() {
+            return Ok(());
+        }
+        let replay_logs = self.imm.replay_log_dir.as_ref().unwrap().as_path();
         let replay_logs_dir =
             fs::read_dir(replay_logs).map_err(handle_rl_err("open dir", replay_logs))?;
 
@@ -1935,7 +1963,7 @@ mod test {
                 create_storage_handles_from_state_dir(&state_dir, &nick);
 
             let (mgr_view, pub_view) =
-                ipt_set::ipts_channel(&runtime, iptpub_state_handle).unwrap();
+                ipt_set::ipts_channel(&runtime, Some(iptpub_state_handle)).unwrap();
 
             let keymgr = create_keymgr(temp_dir);
             let keymgr = keymgr.into_untracked(); // OK because our return value captures 'd
@@ -1947,10 +1975,11 @@ mod test {
                 cfg_rx,
                 rend_tx,
                 shut_rx,
-                &state_handle,
+                &Some(state_handle),
                 mocks,
                 keymgr,
                 status_tx,
+                true,
             )
             .unwrap();
 
