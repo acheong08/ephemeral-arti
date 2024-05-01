@@ -8,8 +8,11 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     InvalidVersion,
+    NoAcceptableMethod,
     AddrUnsupported,
     CommandUnsupported,
+    UsernameNotFound,
+    InvalidPassword,
     Io(io::Error),
     Utf8(Utf8Error),
 }
@@ -20,8 +23,11 @@ impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidVersion => write!(f, "invalid protocol version"),
+            Self::NoAcceptableMethod => write!(f, "no acceptable method"),
             Self::AddrUnsupported => write!(f, "address type unsupported"),
             Self::CommandUnsupported => write!(f, "command unsupported"),
+            Self::UsernameNotFound => write!(f, "username not found"),
+            Self::InvalidPassword => write!(f, "invalid password"),
             Self::Io(e) => e.fmt(f),
             Self::Utf8(e) => e.fmt(f),
         }
@@ -33,6 +39,7 @@ impl From<io::Error> for Error {
         Self::Io(e)
     }
 }
+
 impl From<Utf8Error> for Error {
     fn from(e: Utf8Error) -> Self {
         Self::Utf8(e)

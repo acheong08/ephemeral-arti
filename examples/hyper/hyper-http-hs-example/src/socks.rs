@@ -6,16 +6,29 @@ use crate::error;
 use log::info;
 use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use tokio::{io, net};
+
+const AUTH_VERSION: u8 = 0x1;
 const IPV4_TYPE: u8 = 0x1;
 const IPV6_TYPE: u8 = 0x4;
 const DOMAIN_TYPE: u8 = 0x3;
 const CONNECT_COMMAND: u8 = 0x1;
+const AUTH_METHOD: u8 = 0x2;
 const NO_AUTH_METHOD: u8 = 0x0;
+const NO_METHOD: u8 = 0xff;
 const SOCKS_VERSION: u8 = 0x5;
 const SUCCESS_REPLY: u8 = 0x0;
 
-pub async fn handle(stream: &mut DataStream) -> error::Result<()> {
+#[derive(Clone)]
+pub struct AuthConfig {
+    pub users: Vec<(String, String)>,
+}
+
+pub async fn handle(
+    stream: &mut DataStream,
+    auth_config: Option<&AuthConfig>,
+) -> error::Result<()> {
     let mut buf = [0u8; 2];
     stream.read_exact(&mut buf).await?;
 
@@ -28,11 +41,41 @@ pub async fn handle(stream: &mut DataStream) -> error::Result<()> {
     let mut buf = vec![0u8; len];
     stream.read_exact(&mut buf).await?;
 
-    let method = NO_AUTH_METHOD;
+    let method = *buf
+        .iter()
+        .find(|&&m| {
+            m == NO_AUTH_METHOD && auth_config.is_none()
+                || m == AUTH_METHOD
+                    && (auth_config.is_some() || auth_config.as_ref().unwrap().users.is_empty())
+        })
+        .unwrap_or(&NO_METHOD);
 
     let buf = [SOCKS_VERSION, method];
     stream.write_all(&buf).await?;
     stream.flush().await?;
+
+    match method {
+        AUTH_METHOD => {
+            let res = auth(
+                stream,
+                Arc::new(match auth_config {
+                    Some(c) => c.clone(),
+                    None => return Err(error::Error::NoAcceptableMethod),
+                }),
+            )
+            .await;
+            let reply = res.is_err() as u8;
+            let buf = [AUTH_VERSION, reply];
+            stream.write_all(&buf).await?;
+            stream.flush().await?;
+            res?;
+        }
+        NO_METHOD => {
+            return Err(error::Error::NoAcceptableMethod);
+        }
+        _ => {}
+    }
+
     let mut buf = [0u8; 4];
     stream.read_exact(&mut buf).await?;
 
@@ -131,4 +174,38 @@ async fn socks(stream: &mut DataStream, buf: [u8; 4]) -> error::Result<(TcpStrea
     let stream = TcpStream::connect(&dest[..]).await?;
     let addr = stream.local_addr()?;
     Ok((stream, addr))
+}
+
+async fn auth(stream: &mut DataStream, config: Arc<AuthConfig>) -> error::Result<()> {
+    let mut buf = [0u8; 2];
+    stream.read_exact(&mut buf).await?;
+
+    let ver = buf[0];
+    if ver != AUTH_VERSION {
+        return Err(error::Error::InvalidVersion);
+    }
+
+    let len = buf[1] as usize;
+    let mut buf = vec![0u8; len];
+    stream.read_exact(&mut buf).await?;
+    let username = String::from_utf8(buf)?;
+
+    let len = stream.read_u8().await? as usize;
+    let mut buf = vec![0u8; len];
+    stream.read_exact(&mut buf).await?;
+    let password = String::from_utf8(buf)?;
+
+    let pass = config
+        .users
+        .iter()
+        .find(|(u, _)| u == &username)
+        .ok_or(error::Error::UsernameNotFound)?
+        .1
+        .clone();
+    // This is less secure but hashing takes too long
+    if pass != password {
+        return Err(error::Error::InvalidPassword);
+    }
+    eprintln!("Authenticated user: {username}");
+    Ok(())
 }

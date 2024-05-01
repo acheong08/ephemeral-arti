@@ -11,6 +11,7 @@ use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use safelog::sensitive;
+use socks::AuthConfig;
 use tokio_util::sync::CancellationToken;
 use tor_cell::relaycell::msg::Connected;
 use tor_hsservice::config::OnionServiceConfigBuilder;
@@ -87,13 +88,19 @@ async fn main() {
         .take_until(handler.shutdown.cancelled());
     tokio::pin!(stream_requests);
 
+    let auth_config = AuthConfig {
+        users: vec![("user".to_string(), "CHANGEME!".to_string())],
+    };
+
     while let Some(stream_request) = stream_requests.next().await {
         // incoming connection
         let handler = handler.clone();
 
+        let config_clone = auth_config.clone();
+
         tokio::spawn(async move {
             let request = stream_request.request().clone();
-            let result = handle_stream_request(stream_request, handler).await;
+            let result = handle_stream_request(stream_request, handler, Some(&config_clone)).await;
 
             match result {
                 Ok(()) => {}
@@ -111,6 +118,7 @@ async fn main() {
 async fn handle_stream_request(
     stream_request: StreamRequest,
     handler: Arc<WebHandler>,
+    proxy_config: Option<&AuthConfig>,
 ) -> Result<()> {
     match stream_request.request() {
         IncomingStreamRequest::Begin(begin) => match begin.port() {
@@ -127,7 +135,7 @@ async fn handle_stream_request(
                 let mut onion_service_stream =
                     stream_request.accept(Connected::new_empty()).await?;
                 eprintln!("onion service stream accepted");
-                socks::handle(&mut onion_service_stream).await?;
+                socks::handle(&mut onion_service_stream, proxy_config).await?;
                 eprintln!("custom SOCKS5 connection finished");
             }
             1082 => {
