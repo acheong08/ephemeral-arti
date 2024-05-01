@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex};
 
 /// Implementation of StateMgr that stores state in memory.
 /// We fake locking by using a boolean flag to satisfy the trait
-#[cfg_attr(docsrs, doc(cfg(not(target_arch = "wasm32"))))]
 #[derive(Clone, Debug)]
 pub struct MemStateMgr {
     /// Inner reference-counted object.
